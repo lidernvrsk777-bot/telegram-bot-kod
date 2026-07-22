@@ -1,9 +1,7 @@
-
 import logging
 import os
-import sqlite3
 import requests
-from datetime import datetime
+import time
 
 # Enable logging
 logging.basicConfig(
@@ -14,7 +12,6 @@ logger = logging.getLogger(__name__)
 # Configuration
 TOKEN = os.getenv("DOBBY_TOKEN", "8392695497:AAFxZaIBKwgKzurVdClFRGys1LGPCfwZ0H0")
 API_URL = f"https://api.telegram.org/bot{TOKEN}"
-ADMIN_USERNAME = "aslan_systems"
 GROUP_CHAT_ID = -1002381005898
 
 # Knowledge Base (Modules)
@@ -37,10 +34,10 @@ def send_message(chat_id, text):
 
 def handle_updates():
     offset = 0
-    logger.info("Dobby Bot started...")
+    logger.info("Dobby Bot (Enhanced) started...")
     
     # Send welcome message on start
-    send_message(GROUP_CHAT_ID, "Всем привет! Я Доби! 🫡\nЯ ваш системный ассистент. Я помогу вам с навигацией по модулям и отвечу на вопросы.\nПросто напишите 'Доби' или номер модуля!")
+    send_message(GROUP_CHAT_ID, "Доби на связи! 🫡\nЯ обновил свои алгоритмы и теперь слышу вас лучше. Спрашивайте про модули или пишите 'Доби'!")
 
     while True:
         try:
@@ -51,13 +48,17 @@ def handle_updates():
             if response.get("ok"):
                 for update in response.get("result", []):
                     offset = update["update_id"] + 1
-                    if "message" in update and "text" in update["message"]:
-                        message = update["message"]
+                    
+                    # Handle both private and group messages
+                    message = update.get("message") or update.get("channel_post")
+                    if message and "text" in message:
                         text = message["text"].lower()
                         chat_id = message["chat"]["id"]
+                        logger.info(f"Received message in {chat_id}: {text}")
                         
-                        # Logic for Dobby
                         response_text = None
+                        
+                        # Check keywords
                         if "доби" in text:
                             response_text = "Я здесь! Чем могу помочь? 😊"
                         
@@ -66,7 +67,7 @@ def handle_updates():
                                 response_text = val
                                 break
                         
-                        if "связь" in text or "автор" in text:
+                        if "связь" in text or "автор" in text or "аслан" in text:
                             response_text = KNOWLEDGE_BASE["связь"]
                             
                         if response_text:
@@ -74,7 +75,6 @@ def handle_updates():
                             
         except Exception as e:
             logger.error(f"Error in Dobby loop: {e}")
-            import time
             time.sleep(5)
 
 if __name__ == "__main__":
