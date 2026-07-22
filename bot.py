@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 Telegram Bot for КОД УПРАВЛЕНИЯ
-Deployed on Render for 24/7 operation
-Uses polling method (more reliable than webhooks on free tier)
+Optimized for Group chats and Instant responses
+Works without external AI for maximum reliability
 """
 
 import os
@@ -11,7 +11,6 @@ import logging
 from datetime import datetime
 import requests
 from typing import Optional, Dict, Any
-import openai
 
 # Configure logging
 logging.basicConfig(
@@ -28,37 +27,24 @@ TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '8392695497:AAFxZaIBKwgKzur
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID', '7423566451')
 TELEGRAM_API_URL = 'https://api.telegram.org'
 
-# Manus AI Configuration
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-OPENAI_API_BASE = os.getenv('OPENAI_API_BASE', 'https://api.manus.im/v1')
-
-client = openai.OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_API_BASE)
-
-# System prompt for the AI bot
-SYSTEM_PROMPT = """Ты — Системный ассистент проекта «КОД УПРАВЛЕНИЯ» — программы обучения управлению кафе за 30 дней.
-
-Твоя роль:
-- Отвечать на вопросы о программе, методике и процессе обучения
-- Давать глубокие, но лаконичные ответы, фокусируясь на практической пользе
-- Быть вежливым, профессиональным и авторитетным консультантом
-- Помогать по навигации по модулям программы
-
-О программе:
-- Длительность: 30 дней интенсивного обучения
-- Фокус: чек-листы, KPI, стандарты сервиса, управление командой
-- Результат: систематическое управление кафе вместо хаотичного подхода
-
-Если пользователь просит связаться с человеком или говорит "оператор", "помощь", "человек" — предложи ему написать в канал Telegram: https://t.me/+Lzaw4ImRzoI3Nzky или оставить контакты.
-
-Отвечай на русском языке. Будь кратким, но информативным. Используй форматирование HTML (<b>жирный</b>, <i>курсив</i>) для выделения ключевых моментов."""
-
 class TelegramBot:
     def __init__(self, token: str):
         self.token = token
         self.api_url = f"{TELEGRAM_API_URL}/bot{token}"
         self.offset = 0
-        self.user_data: Dict[str, Any] = {}
-        logger.info("🤖 Telegram Bot initialized")
+        self.bot_info = self.get_me()
+        self.bot_username = self.bot_info.get('username', '') if self.bot_info else ''
+        logger.info(f"🤖 Telegram Bot initialized as @{self.bot_username}")
+
+    def get_me(self) -> Dict[str, Any]:
+        """Get bot information"""
+        try:
+            url = f"{self.api_url}/getMe"
+            response = requests.get(url, timeout=10)
+            return response.json().get('result', {})
+        except Exception as e:
+            logger.error(f"Failed to get bot info: {e}")
+            return {}
 
     def get_updates(self, timeout: int = 30) -> list:
         """Fetch new messages from Telegram"""
@@ -82,15 +68,19 @@ class TelegramBot:
             logger.error(f"Failed to get updates: {e}")
             return []
 
-    def send_message(self, chat_id: str, text: str) -> bool:
-        """Send a message to a user"""
+    def send_message(self, chat_id: str, text: str, reply_to_message_id: Optional[int] = None) -> bool:
+        """Send a message to a user or group"""
         try:
             url = f"{self.api_url}/sendMessage"
             payload = {
                 'chat_id': chat_id,
                 'text': text,
-                'parse_mode': 'HTML'
+                'parse_mode': 'HTML',
+                'disable_web_page_preview': False
             }
+            if reply_to_message_id:
+                payload['reply_to_message_id'] = reply_to_message_id
+                
             response = requests.post(url, json=payload, timeout=10)
             response.raise_for_status()
             return response.json().get('ok', False)
@@ -98,112 +88,142 @@ class TelegramBot:
             logger.error(f"Failed to send message: {e}")
             return False
 
-    def send_typing_action(self, chat_id: str) -> None:
-        """Send typing action to show bot is processing"""
-        try:
-            url = f"{self.api_url}/sendChatAction"
-            payload = {'chat_id': chat_id, 'action': 'typing'}
-            requests.post(url, json=payload, timeout=5)
-        except Exception as e:
-            logger.debug(f"Failed to send typing action: {e}")
-
-    def generate_response(self, user_message: str, user_id: str) -> str:
-        """Generate AI response using Manus AI (OpenAI API)"""
-        try:
-            response = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": user_message}
-                ],
-                max_tokens=500,
-                temperature=0.7
-            )
-            return response.choices[0].message.content
-        except Exception as e:
-            logger.error(f"Error generating AI response: {e}")
+    def generate_static_response(self, user_message: str) -> Optional[str]:
+        """Generate response based on built-in knowledge base"""
+        msg = user_message.lower()
+        
+        # 1. Greetings
+        if any(word in msg for word in ['привет', 'здравствуй', 'начать', 'start', 'hello', 'hi']):
             return (
-                "Извините, сейчас я не могу обработать ваш запрос. 😔\n\n"
-                "Пожалуйста, напишите в наш Telegram канал: https://t.me/+Lzaw4ImRzoI3Nzky"
+                "👋 <b>Добро пожаловать в проект «КОД УПРАВЛЕНИЯ»!</b>\n\n"
+                "Я ваш системный ассистент. Я помогу вам разобраться в программе обучения управлению кафе за 30 дней.\n\n"
+                "<b>Что вас интересует?</b>\n"
+                "• 📚 О программе\n"
+                "• 🎯 Результаты обучения\n"
+                "• 👨‍💼 Об авторе (Aslan Uzhakhov)\n"
+                "• 🛠 Модули программы\n"
+                "• 🤝 Помощь оператора\n\n"
+                "Просто напишите ваш вопрос!"
             )
+
+        # 2. About Program
+        if any(word in msg for word in ['программа', 'обучение', 'курс', 'что это', 'подробности']):
+            return (
+                "📚 <b>О программе «КОД УПРАВЛЕНИЯ»</b>\n\n"
+                "Это интенсивная 30-дневная программа для владельцев и управляющих кафе/кофеен.\n\n"
+                "<b>Основные направления:</b>\n"
+                "1. Систематизация всех процессов.\n"
+                "2. Внедрение чек-листов и стандартов.\n"
+                "3. Управление командой и KPI.\n"
+                "4. Финансовый контроль и прибыльность.\n\n"
+                "<b>Формат:</b> Практические задания, готовые шаблоны и обратная связь."
+            )
+
+        # 3. Results
+        if any(word in msg for word in ['результат', 'выгода', 'зачем', 'что получу']):
+            return (
+                "🎯 <b>Ваши результаты через 30 дней:</b>\n\n"
+                "✅ <b>Порядок:</b> Управление по системе, а не по интуиции.\n"
+                "✅ <b>Прибыль:</b> Рост показателей за счет контроля издержек.\n"
+                "✅ <b>Команда:</b> Сотрудники знают свои задачи и работают на результат.\n"
+                "✅ <b>Свобода:</b> Бизнес работает стабильно даже в ваше отсутствие.\n\n"
+                "Вы перейдете от тушения пожаров к стратегическому развитию."
+            )
+
+        # 4. Modules / Navigation
+        if any(word in msg for word in ['модули', 'навигация', 'блоки', 'чему учат', 'этапы']):
+            return (
+                "🛠 <b>Модули программы:</b>\n\n"
+                "📍 <b>Модуль 1:</b> Фундамент и стандарты сервиса.\n"
+                "📍 <b>Модуль 2:</b> Управление персоналом и мотивация.\n"
+                "📍 <b>Модуль 3:</b> Финансовый учет и аналитика.\n"
+                "📍 <b>Модуль 4:</b> Маркетинг и привлечение гостей.\n"
+                "📍 <b>Модуль 5:</b> Масштабирование и делегирование.\n\n"
+                "Каждый модуль включает в себя конкретные инструменты для внедрения."
+            )
+
+        # 5. Author
+        if any(word in msg for word in ['автор', 'аслан', 'uzhakhov', 'кто ведет']):
+            return (
+                "👨‍💼 <b>Об авторе — Aslan Uzhakhov</b>\n\n"
+                "Системный консультант и эксперт по масштабированию ресторанного бизнеса.\n\n"
+                "• Помог десяткам заведений выстроить систему управления.\n"
+                "• Автор методики, превращающей хаотичное кафе в прибыльную сеть.\n"
+                "• Специалист по автоматизации и контролю качества."
+            )
+
+        # 6. Operator / Help
+        if any(word in msg for word in ['оператор', 'помощь', 'человек', 'связаться', 'менеджер', 'вопрос']):
+            return (
+                "🤝 <b>Нужна помощь человека?</b>\n\n"
+                "Вы можете задать свой вопрос или связаться с нами напрямую:\n"
+                "👉 <b>Наш канал:</b> https://t.me/+Lzaw4ImRzoI3Nzky\n\n"
+                "Оставьте ваш контакт или напишите в личные сообщения администратору канала."
+            )
+
+        # 7. Default for other queries
+        return (
+            "🤔 <b>Я вас понял!</b>\n\n"
+            "Я — ассистент программы «КОД УПРАВЛЕНИЯ».\n\n"
+            "Я могу рассказать подробнее о:\n"
+            "• Программе обучения\n"
+            "• Результатах\n"
+            "• Модулях\n"
+            "• Авторе\n\n"
+            "Если ваш вопрос требует участия человека, напишите <b>'оператор'</b>."
+        )
 
     def handle_message(self, update: Dict[str, Any]) -> None:
         """Process incoming message"""
         try:
             message = update.get('message', {})
             chat_id = message.get('chat', {}).get('id')
-            user_id = message.get('from', {}).get('id')
+            message_id = message.get('message_id')
             text = message.get('text', '').strip()
+            chat_type = message.get('chat', {}).get('type')
 
             if not chat_id or not text:
                 return
 
-            user_name = message.get('from', {}).get('first_name', 'User')
-            logger.info(f"📨 Message from {user_name} (ID: {user_id}): {text[:50]}")
+            # In groups, only respond if mentioned or if it's a command
+            is_private = chat_type == 'private'
+            is_mentioned = f"@{self.bot_username}" in text
+            
+            # Simple keyword matching for groups even without mention
+            keywords = ['программа', 'код управления', 'аслан', 'результат', 'модуль', 'помощь', 'оператор']
+            contains_keyword = any(k in text.lower() for k in keywords)
 
-            # Show typing indicator
-            self.send_typing_action(str(chat_id))
-
-            # Generate response
-            response = self.generate_response(text, str(user_id))
-
-            # Send response
-            if self.send_message(str(chat_id), response):
-                logger.info(f"✅ Response sent to {user_name}")
-            else:
-                logger.error(f"❌ Failed to send response to {user_name}")
+            if is_private or is_mentioned or contains_keyword:
+                # Remove bot mention from text for cleaner processing
+                clean_text = text.replace(f"@{self.bot_username}", "").strip()
+                
+                response = self.generate_static_response(clean_text)
+                if response:
+                    self.send_message(str(chat_id), response, reply_to_message_id=message_id)
+                    logger.info(f"✅ Replied in {chat_type} chat {chat_id}")
 
         except Exception as e:
             logger.error(f"Error handling message: {e}", exc_info=True)
 
     def run(self) -> None:
         """Main bot loop"""
-        logger.info("🚀 Starting bot polling...")
-        logger.info(f"Bot token: {self.token[:20]}...")
-        logger.info(f"Chat ID: {TELEGRAM_CHAT_ID}")
-
-        consecutive_errors = 0
-        max_consecutive_errors = 10
-
+        logger.info("🚀 Starting bot polling (Static Mode)...")
+        
         while True:
             try:
                 updates = self.get_updates(timeout=30)
-                
                 if updates:
-                    consecutive_errors = 0
                     for update in updates:
-                        try:
-                            self.offset = update.get('update_id', 0) + 1
-                            
-                            if 'message' in update:
-                                self.handle_message(update)
-                        except Exception as e:
-                            logger.error(f"Error processing update: {e}")
-                
-                # Log that we're alive
-                logger.debug(f"✓ Polling active... (offset: {self.offset})")
-
+                        self.offset = update.get('update_id', 0) + 1
+                        if 'message' in update:
+                            self.handle_message(update)
             except KeyboardInterrupt:
-                logger.info("⏹️  Bot stopped by user")
                 break
             except Exception as e:
-                consecutive_errors += 1
-                logger.error(f"Error in main loop (attempt {consecutive_errors}/{max_consecutive_errors}): {e}")
-                if consecutive_errors >= max_consecutive_errors:
-                    logger.critical("Too many consecutive errors. Stopping bot.")
-                    break
-                # Wait before retrying
+                logger.error(f"Error: {e}")
                 import time
                 time.sleep(5)
 
-def main():
-    """Entry point"""
-    logger.info("=" * 60)
-    logger.info("КОД УПРАВЛЕНИЯ — Telegram Bot")
-    logger.info(f"Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    logger.info("=" * 60)
+if __name__ == '__main__':
     bot = TelegramBot(TELEGRAM_BOT_TOKEN)
     bot.run()
-
-if __name__ == '__main__':
-    main()
