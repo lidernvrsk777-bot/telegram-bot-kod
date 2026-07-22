@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Telegram Bot for КОД УПРАВЛЕНИЯ
-Advanced Navigation, Personal Contact, and Group Learning Mode
+Telegram Bot: ДОБИ
+Navigation, Personal Contact, and Group Learning Mode
 """
 
 import os
@@ -27,6 +27,7 @@ TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '8392695497:AAFxZaIBKwgKzur
 TELEGRAM_API_URL = 'https://api.telegram.org'
 OWNER_CONTACT = "@aslan_systems"
 DB_FILE = "knowledge_base.json"
+GROUP_CHAT_ID = "-1002381005898" # Based on the link provided or set via env
 
 class TelegramBot:
     def __init__(self, token: str):
@@ -36,10 +37,9 @@ class TelegramBot:
         self.bot_info = self.get_me()
         self.bot_username = self.bot_info.get('username', '') if self.bot_info else ''
         self.knowledge_base = self.load_kb()
-        logger.info(f"🤖 Bot @{self.bot_username} initialized with {len(self.knowledge_base)} topics")
+        logger.info(f"🤖 Доби @{self.bot_username} инициализирован!")
 
     def load_kb(self) -> Dict[str, str]:
-        """Load knowledge base from file or return default"""
         default_kb = {
             "модуль 1": "📍 <b>Модуль 1: Фундамент и стандарты сервиса</b>\nВ этом блоке мы разбираем базу: как создать стандарты, которые работают без вашего участия.",
             "модуль 2": "📍 <b>Модуль 2: Управление персоналом</b>\nНайм, адаптация и мотивация команды. Как сделать так, чтобы сотрудники горели делом.",
@@ -51,22 +51,18 @@ class TelegramBot:
             "связь": f"🤝 По всем вопросам пишите лично автору: {OWNER_CONTACT}",
             "оператор": f"📞 Для связи с оператором напишите: {OWNER_CONTACT}"
         }
-        
         if os.path.exists(DB_FILE):
             try:
                 with open(DB_FILE, 'r', encoding='utf-8') as f:
                     return json.load(f)
-            except Exception as e:
-                logger.error(f"Error loading KB: {e}")
+            except: pass
         return default_kb
 
     def save_kb(self):
-        """Save knowledge base to file"""
         try:
             with open(DB_FILE, 'w', encoding='utf-8') as f:
                 json.dump(self.knowledge_base, f, ensure_ascii=False, indent=4)
-        except Exception as e:
-            logger.error(f"Error saving KB: {e}")
+        except: pass
 
     def get_me(self) -> Dict[str, Any]:
         try:
@@ -88,8 +84,23 @@ class TelegramBot:
             payload = {'chat_id': chat_id, 'text': text, 'parse_mode': 'HTML'}
             if reply_to_id: payload['reply_to_message_id'] = reply_to_id
             requests.post(url, json=payload, timeout=10)
-        except Exception as e:
-            logger.error(f"Send error: {e}")
+        except: pass
+
+    def send_intro(self):
+        """Send introduction message to the group"""
+        intro_text = (
+            "👋 <b>Всем привет! Я Доби!</b>\n\n"
+            "Я ваш верный помощник и навигатор в проекте <b>«КОД УПРАВЛЕНИЯ»</b>. 😊\n\n"
+            "<b>Что я умею:</b>\n"
+            "📍 <b>Навигация:</b> Просто напишите 'модуль 1' или 'автор', и я пришлю нужную информацию.\n"
+            "🤝 <b>Связь:</b> Напишите 'связь' или 'помощь', и я дам контакт Аслана.\n"
+            "📚 <b>Обучение:</b> Я запоминаю всё, что Аслан велит мне выучить!\n\n"
+            "<b>Как ко мне обращаться:</b>\n"
+            "Вы можете просто звать меня по имени — <b>Доби</b>, или писать ключевые слова. Я всегда на посту! 🫡"
+        )
+        # We try to send to the group chat if ID is known, otherwise it will wait for first message
+        if GROUP_CHAT_ID:
+            self.send_message(GROUP_CHAT_ID, intro_text)
 
     def handle_message(self, update: Dict[str, Any]):
         message = update.get('message', {})
@@ -101,7 +112,7 @@ class TelegramBot:
 
         if not text: return
 
-        # 1. Learning Command: !запомнить [ключ] - [значение]
+        # 1. Learning Command
         if text.startswith('!запомнить') and username == 'aslan_systems':
             try:
                 parts = text.replace('!запомнить', '').split('-', 1)
@@ -110,32 +121,38 @@ class TelegramBot:
                     value = parts[1].strip()
                     self.knowledge_base[key] = value
                     self.save_kb()
-                    self.send_message(chat_id, f"✅ Тема <b>'{key}'</b> успешно сохранена в базу навигации!", msg_id)
+                    self.send_message(chat_id, f"✅ Доби запомнил тему <b>'{key}'</b>!", msg_id)
                     return
-            except Exception as e:
-                logger.error(f"Learning error: {e}")
+            except: pass
 
-        # 2. Navigation Logic
+        # 2. Response Logic
         text_lower = text.lower()
-        found_responses = []
         
+        # If someone calls "Доби"
+        if "доби" in text_lower:
+            if any(word in text_lower for word in ['привет', 'здравствуй', 'ку']):
+                self.send_message(chat_id, "Привет! Доби к вашим услугам! 😊 Чем могу помочь?", msg_id)
+                return
+            elif any(word in text_lower for word in ['спасибо', 'благодарю', 'красавчик']):
+                self.send_message(chat_id, "Всегда рад помочь! Доби счастлив быть полезным! ✨", msg_id)
+                return
+
+        found_responses = []
         for key, response in self.knowledge_base.items():
             if key in text_lower:
                 found_responses.append(response)
 
         if found_responses:
-            # Combine unique responses
             final_response = "\n\n---\n\n".join(list(set(found_responses)))
             self.send_message(chat_id, final_response, msg_id)
-            logger.info(f"📍 Navigation trigger for: {text[:30]}")
-        
-        # 3. Help trigger
-        elif any(word in text_lower for word in ['помощь', 'связь', 'вопрос', 'админ']):
-            help_text = f"🤝 Нужна помощь? По всем вопросам навигации и обучения пишите лично: {OWNER_CONTACT}"
-            self.send_message(chat_id, help_text, msg_id)
 
     def run(self):
-        logger.info("🚀 Bot is running in Navigation & Learning mode...")
+        logger.info("🚀 Доби запускается...")
+        # Small delay to ensure Render environment is ready
+        import time
+        time.sleep(5)
+        self.send_intro()
+        
         while True:
             try:
                 updates = self.get_updates()
@@ -145,8 +162,6 @@ class TelegramBot:
                         self.handle_message(update)
             except KeyboardInterrupt: break
             except Exception as e:
-                logger.error(f"Loop error: {e}")
-                import time
                 time.sleep(5)
 
 if __name__ == '__main__':
