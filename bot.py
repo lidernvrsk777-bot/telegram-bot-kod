@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
 Telegram Bot for КОД УПРАВЛЕНИЯ
-Optimized for Group chats and Instant responses
-Works without external AI for maximum reliability
+Advanced Navigation, Personal Contact, and Group Learning Mode
 """
 
 import os
 import sys
 import logging
+import json
 from datetime import datetime
 import requests
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 # Configure logging
 logging.basicConfig(
@@ -24,8 +24,9 @@ logger = logging.getLogger(__name__)
 
 # Configuration
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '8392695497:AAFxZaIBKwgKzurVdClFRGys1LGPCfwZ0H0')
-TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID', '7423566451')
 TELEGRAM_API_URL = 'https://api.telegram.org'
+OWNER_CONTACT = "@aslan_systems"
+DB_FILE = "knowledge_base.json"
 
 class TelegramBot:
     def __init__(self, token: str):
@@ -34,193 +35,117 @@ class TelegramBot:
         self.offset = 0
         self.bot_info = self.get_me()
         self.bot_username = self.bot_info.get('username', '') if self.bot_info else ''
-        logger.info(f"🤖 Telegram Bot initialized as @{self.bot_username}")
+        self.knowledge_base = self.load_kb()
+        logger.info(f"🤖 Bot @{self.bot_username} initialized with {len(self.knowledge_base)} topics")
+
+    def load_kb(self) -> Dict[str, str]:
+        """Load knowledge base from file or return default"""
+        default_kb = {
+            "модуль 1": "📍 <b>Модуль 1: Фундамент и стандарты сервиса</b>\nВ этом блоке мы разбираем базу: как создать стандарты, которые работают без вашего участия.",
+            "модуль 2": "📍 <b>Модуль 2: Управление персоналом</b>\nНайм, адаптация и мотивация команды. Как сделать так, чтобы сотрудники горели делом.",
+            "модуль 3": "📍 <b>Модуль 3: Финансовый учет</b>\nЦифры, KPI и аналитика. Учимся видеть реальную прибыль и управлять издержками.",
+            "модуль 4": "📍 <b>Модуль 4: Маркетинг</b>\nПривлечение гостей и работа с лояльностью. Как сделать кафе популярным в городе.",
+            "модуль 5": "📍 <b>Модуль 5: Масштабирование</b>\nДелегирование и подготовка к открытию новых точек.",
+            "автор": f"👨‍💼 <b>Aslan Uzhakhov</b> — системный консультант.\nСвязаться лично: {OWNER_CONTACT}",
+            "программа": "📚 <b>Программа «КОД УПРАВЛЕНИЯ»</b> — это 30 дней трансформации вашего бизнеса из хаоса в систему.",
+            "связь": f"🤝 По всем вопросам пишите лично автору: {OWNER_CONTACT}",
+            "оператор": f"📞 Для связи с оператором напишите: {OWNER_CONTACT}"
+        }
+        
+        if os.path.exists(DB_FILE):
+            try:
+                with open(DB_FILE, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception as e:
+                logger.error(f"Error loading KB: {e}")
+        return default_kb
+
+    def save_kb(self):
+        """Save knowledge base to file"""
+        try:
+            with open(DB_FILE, 'w', encoding='utf-8') as f:
+                json.dump(self.knowledge_base, f, ensure_ascii=False, indent=4)
+        except Exception as e:
+            logger.error(f"Error saving KB: {e}")
 
     def get_me(self) -> Dict[str, Any]:
-        """Get bot information"""
         try:
             url = f"{self.api_url}/getMe"
-            response = requests.get(url, timeout=10)
-            return response.json().get('result', {})
-        except Exception as e:
-            logger.error(f"Failed to get bot info: {e}")
-            return {}
+            return requests.get(url, timeout=10).json().get('result', {})
+        except: return {}
 
     def get_updates(self, timeout: int = 30) -> list:
-        """Fetch new messages from Telegram"""
         try:
             url = f"{self.api_url}/getUpdates"
-            params = {
-                'offset': self.offset,
-                'timeout': timeout,
-                'allowed_updates': ['message']
-            }
-            response = requests.get(url, params=params, timeout=timeout + 5)
-            response.raise_for_status()
-            data = response.json()
-            
-            if data.get('ok'):
-                return data.get('result', [])
-            else:
-                logger.error(f"Telegram API error: {data.get('description')}")
-                return []
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to get updates: {e}")
-            return []
+            params = {'offset': self.offset, 'timeout': timeout, 'allowed_updates': ['message']}
+            data = requests.get(url, params=params, timeout=timeout + 5).json()
+            return data.get('result', []) if data.get('ok') else []
+        except: return []
 
-    def send_message(self, chat_id: str, text: str, reply_to_message_id: Optional[int] = None) -> bool:
-        """Send a message to a user or group"""
+    def send_message(self, chat_id: str, text: str, reply_to_id: Optional[int] = None):
         try:
             url = f"{self.api_url}/sendMessage"
-            payload = {
-                'chat_id': chat_id,
-                'text': text,
-                'parse_mode': 'HTML',
-                'disable_web_page_preview': False
-            }
-            if reply_to_message_id:
-                payload['reply_to_message_id'] = reply_to_message_id
-                
-            response = requests.post(url, json=payload, timeout=10)
-            response.raise_for_status()
-            return response.json().get('ok', False)
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to send message: {e}")
-            return False
-
-    def generate_static_response(self, user_message: str) -> Optional[str]:
-        """Generate response based on built-in knowledge base"""
-        msg = user_message.lower()
-        
-        # 1. Greetings
-        if any(word in msg for word in ['привет', 'здравствуй', 'начать', 'start', 'hello', 'hi']):
-            return (
-                "👋 <b>Добро пожаловать в проект «КОД УПРАВЛЕНИЯ»!</b>\n\n"
-                "Я ваш системный ассистент. Я помогу вам разобраться в программе обучения управлению кафе за 30 дней.\n\n"
-                "<b>Что вас интересует?</b>\n"
-                "• 📚 О программе\n"
-                "• 🎯 Результаты обучения\n"
-                "• 👨‍💼 Об авторе (Aslan Uzhakhov)\n"
-                "• 🛠 Модули программы\n"
-                "• 🤝 Помощь оператора\n\n"
-                "Просто напишите ваш вопрос!"
-            )
-
-        # 2. About Program
-        if any(word in msg for word in ['программа', 'обучение', 'курс', 'что это', 'подробности']):
-            return (
-                "📚 <b>О программе «КОД УПРАВЛЕНИЯ»</b>\n\n"
-                "Это интенсивная 30-дневная программа для владельцев и управляющих кафе/кофеен.\n\n"
-                "<b>Основные направления:</b>\n"
-                "1. Систематизация всех процессов.\n"
-                "2. Внедрение чек-листов и стандартов.\n"
-                "3. Управление командой и KPI.\n"
-                "4. Финансовый контроль и прибыльность.\n\n"
-                "<b>Формат:</b> Практические задания, готовые шаблоны и обратная связь."
-            )
-
-        # 3. Results
-        if any(word in msg for word in ['результат', 'выгода', 'зачем', 'что получу']):
-            return (
-                "🎯 <b>Ваши результаты через 30 дней:</b>\n\n"
-                "✅ <b>Порядок:</b> Управление по системе, а не по интуиции.\n"
-                "✅ <b>Прибыль:</b> Рост показателей за счет контроля издержек.\n"
-                "✅ <b>Команда:</b> Сотрудники знают свои задачи и работают на результат.\n"
-                "✅ <b>Свобода:</b> Бизнес работает стабильно даже в ваше отсутствие.\n\n"
-                "Вы перейдете от тушения пожаров к стратегическому развитию."
-            )
-
-        # 4. Modules / Navigation
-        if any(word in msg for word in ['модули', 'навигация', 'блоки', 'чему учат', 'этапы']):
-            return (
-                "🛠 <b>Модули программы:</b>\n\n"
-                "📍 <b>Модуль 1:</b> Фундамент и стандарты сервиса.\n"
-                "📍 <b>Модуль 2:</b> Управление персоналом и мотивация.\n"
-                "📍 <b>Модуль 3:</b> Финансовый учет и аналитика.\n"
-                "📍 <b>Модуль 4:</b> Маркетинг и привлечение гостей.\n"
-                "📍 <b>Модуль 5:</b> Масштабирование и делегирование.\n\n"
-                "Каждый модуль включает в себя конкретные инструменты для внедрения."
-            )
-
-        # 5. Author
-        if any(word in msg for word in ['автор', 'аслан', 'uzhakhov', 'кто ведет']):
-            return (
-                "👨‍💼 <b>Об авторе — Aslan Uzhakhov</b>\n\n"
-                "Системный консультант и эксперт по масштабированию ресторанного бизнеса.\n\n"
-                "• Помог десяткам заведений выстроить систему управления.\n"
-                "• Автор методики, превращающей хаотичное кафе в прибыльную сеть.\n"
-                "• Специалист по автоматизации и контролю качества."
-            )
-
-        # 6. Operator / Help
-        if any(word in msg for word in ['оператор', 'помощь', 'человек', 'связаться', 'менеджер', 'вопрос']):
-            return (
-                "🤝 <b>Нужна помощь человека?</b>\n\n"
-                "Вы можете задать свой вопрос или связаться с нами напрямую:\n"
-                "👉 <b>Наш канал:</b> https://t.me/+Lzaw4ImRzoI3Nzky\n\n"
-                "Оставьте ваш контакт или напишите в личные сообщения администратору канала."
-            )
-
-        # 7. Default for other queries
-        return (
-            "🤔 <b>Я вас понял!</b>\n\n"
-            "Я — ассистент программы «КОД УПРАВЛЕНИЯ».\n\n"
-            "Я могу рассказать подробнее о:\n"
-            "• Программе обучения\n"
-            "• Результатах\n"
-            "• Модулях\n"
-            "• Авторе\n\n"
-            "Если ваш вопрос требует участия человека, напишите <b>'оператор'</b>."
-        )
-
-    def handle_message(self, update: Dict[str, Any]) -> None:
-        """Process incoming message"""
-        try:
-            message = update.get('message', {})
-            chat_id = message.get('chat', {}).get('id')
-            message_id = message.get('message_id')
-            text = message.get('text', '').strip()
-            chat_type = message.get('chat', {}).get('type')
-
-            if not chat_id or not text:
-                return
-
-            # In groups, only respond if mentioned or if it's a command
-            is_private = chat_type == 'private'
-            is_mentioned = f"@{self.bot_username}" in text
-            
-            # Simple keyword matching for groups even without mention
-            keywords = ['программа', 'код управления', 'аслан', 'результат', 'модуль', 'помощь', 'оператор']
-            contains_keyword = any(k in text.lower() for k in keywords)
-
-            if is_private or is_mentioned or contains_keyword:
-                # Remove bot mention from text for cleaner processing
-                clean_text = text.replace(f"@{self.bot_username}", "").strip()
-                
-                response = self.generate_static_response(clean_text)
-                if response:
-                    self.send_message(str(chat_id), response, reply_to_message_id=message_id)
-                    logger.info(f"✅ Replied in {chat_type} chat {chat_id}")
-
+            payload = {'chat_id': chat_id, 'text': text, 'parse_mode': 'HTML'}
+            if reply_to_id: payload['reply_to_message_id'] = reply_to_id
+            requests.post(url, json=payload, timeout=10)
         except Exception as e:
-            logger.error(f"Error handling message: {e}", exc_info=True)
+            logger.error(f"Send error: {e}")
 
-    def run(self) -> None:
-        """Main bot loop"""
-        logger.info("🚀 Starting bot polling (Static Mode)...")
+    def handle_message(self, update: Dict[str, Any]):
+        message = update.get('message', {})
+        chat_id = message.get('chat', {}).get('id')
+        msg_id = message.get('message_id')
+        text = message.get('text', '').strip()
+        user = message.get('from', {})
+        username = user.get('username', '')
+
+        if not text: return
+
+        # 1. Learning Command: !запомнить [ключ] - [значение]
+        if text.startswith('!запомнить') and username == 'aslan_systems':
+            try:
+                parts = text.replace('!запомнить', '').split('-', 1)
+                if len(parts) == 2:
+                    key = parts[0].strip().lower()
+                    value = parts[1].strip()
+                    self.knowledge_base[key] = value
+                    self.save_kb()
+                    self.send_message(chat_id, f"✅ Тема <b>'{key}'</b> успешно сохранена в базу навигации!", msg_id)
+                    return
+            except Exception as e:
+                logger.error(f"Learning error: {e}")
+
+        # 2. Navigation Logic
+        text_lower = text.lower()
+        found_responses = []
         
+        for key, response in self.knowledge_base.items():
+            if key in text_lower:
+                found_responses.append(response)
+
+        if found_responses:
+            # Combine unique responses
+            final_response = "\n\n---\n\n".join(list(set(found_responses)))
+            self.send_message(chat_id, final_response, msg_id)
+            logger.info(f"📍 Navigation trigger for: {text[:30]}")
+        
+        # 3. Help trigger
+        elif any(word in text_lower for word in ['помощь', 'связь', 'вопрос', 'админ']):
+            help_text = f"🤝 Нужна помощь? По всем вопросам навигации и обучения пишите лично: {OWNER_CONTACT}"
+            self.send_message(chat_id, help_text, msg_id)
+
+    def run(self):
+        logger.info("🚀 Bot is running in Navigation & Learning mode...")
         while True:
             try:
-                updates = self.get_updates(timeout=30)
-                if updates:
-                    for update in updates:
-                        self.offset = update.get('update_id', 0) + 1
-                        if 'message' in update:
-                            self.handle_message(update)
-            except KeyboardInterrupt:
-                break
+                updates = self.get_updates()
+                for update in updates:
+                    self.offset = update.get('update_id', 0) + 1
+                    if 'message' in update:
+                        self.handle_message(update)
+            except KeyboardInterrupt: break
             except Exception as e:
-                logger.error(f"Error: {e}")
+                logger.error(f"Loop error: {e}")
                 import time
                 time.sleep(5)
 
