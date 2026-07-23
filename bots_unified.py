@@ -5,6 +5,8 @@ import asyncio
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters, CommandHandler
 import openai
+from flask import Flask
+from threading import Thread
 
 # Enable logging
 logging.basicConfig(
@@ -12,6 +14,17 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+# Flask for Render Health Check
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "I'm alive!"
+
+def run_flask():
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host='0.0.0.0', port=port)
 
 # Tokens
 DOBBY_TOKEN = "8392695497:AAFxZaIBKwgKzurVdClFRGys1LGPCfwZ0H0"
@@ -33,12 +46,12 @@ SYSTEM_PROMPT = """
 - Автор: Аслан Ужахов (15 лет в управлении).
 - Личный контакт Аслана: @aslan_systems.
 
-Твой стиль: вежливый, профессиональный, системный. Если тебя благодарят — отвечай взаимностью. Если спрашивают про модули — давай краткую и полезную информацию.
+Твой стиль: вежливый, профессиональный, системный. Отвечай кратко и по делу.
 """
 
 # Funnel Content
 SUBSCRIPTION_LINK = "https://t.me/tribute/app?startapp=ep_8xb4yfPbGCTBmvwOgElNJH3tWhUoMOST5JLSWs6aqm9e3GJpgk"
-WELCOME_TEXT = "<b>Привет! Я — проводник в мир системного управления.</b> 🚀\n\nЕсли вы здесь, значит вы чувствуете, что бизнес забирает слишком много сил. Хотите узнать, как выстроить систему? Напишите <b>«Да»</b>!"
+WELCOME_TEXT = "<b>Привет! Я — проводник в мир системного управления.</b> 🚀\n\nХотите узнать, как выстроить систему и наконец выдохнуть? Напишите <b>«Да»</b>!"
 BENEFITS_TEXT = "<b>В канале «Код Управления» вас ждут:</b>\n\n✅ Инструменты управления\n✅ Разборы кейсов HoReCa\n✅ Психология команд\n✅ Финансовая система\n\nГотовы к первому шагу? Напишите <b>«Хочу»</b>!"
 OFFER_TEXT = f"<b>Ваш путь начинается здесь.</b> 📍\n\n🔗 <b>Подписка:</b> <a href='{SUBSCRIPTION_LINK}'>Перейти к оплате</a>\n\nВопросы? Пишите @aslan_systems."
 
@@ -47,7 +60,7 @@ async def dobby_handle_message(update: Update, context: ContextTypes.DEFAULT_TYP
     if not update.message or not update.message.text: return
     text = update.message.text.lower()
     
-    # Check if Dobby should respond (name mention or keywords)
+    # Check keywords or Dobby name
     keywords = ["доби", "модуль", "аслан", "автор", "программа", "помощь", "связь"]
     if any(k in text for k in keywords):
         try:
@@ -62,7 +75,7 @@ async def dobby_handle_message(update: Update, context: ContextTypes.DEFAULT_TYP
             await update.message.reply_text(reply, parse_mode='Markdown')
         except Exception as e:
             logger.error(f"AI Error: {e}")
-            await update.message.reply_text("Доби на связи! Пожалуйста, напишите @aslan_systems для уточнения деталей.")
+            await update.message.reply_text("Доби здесь! Чем могу помочь? (ИИ временно недоступен, пишите @aslan_systems)")
 
 # --- FUNNEL BOT LOGIC ---
 async def funnel_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -75,19 +88,21 @@ async def funnel_handle_message(update: Update, context: ContextTypes.DEFAULT_TY
     elif "хочу" in text or "подробнее" in text:
         await update.message.reply_text(OFFER_TEXT, parse_mode='HTML')
     else:
-        await update.message.reply_text("Напишите <b>«Да»</b>, чтобы узнать о пользе канала!", parse_mode='HTML')
+        await update.message.reply_text("Напишите <b>«Да»</b>, чтобы продолжить!", parse_mode='HTML')
 
 # --- MAIN RUNNER ---
 async def run_bots():
     dobby_app = ApplicationBuilder().token(DOBBY_TOKEN).build()
     funnel_app = ApplicationBuilder().token(FUNNEL_TOKEN).build()
 
-    # Handlers
     dobby_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), dobby_handle_message))
     funnel_app.add_handler(CommandHandler("start", funnel_start))
     funnel_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), funnel_handle_message))
 
-    # Start both
+    # Start Flask in a separate thread
+    Thread(target=run_flask).start()
+
+    # Start both bots
     await asyncio.gather(
         dobby_app.initialize(),
         funnel_app.initialize(),
@@ -97,7 +112,7 @@ async def run_bots():
         funnel_app.updater.start_polling()
     )
     
-    logger.info("Both bots are running unified...")
+    logger.info("Unified bots with Flask health check started...")
     while True: await asyncio.sleep(1000)
 
 if __name__ == '__main__':
